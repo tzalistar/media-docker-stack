@@ -1,0 +1,184 @@
+version: "3.8"
+
+services:
+  plex:
+    container_name: plex-server
+    image: lscr.io/linuxserver/plex:latest
+    restart: unless-stopped
+    runtime: nvidia
+    privileged: true
+    deploy:
+      resources:
+        reservations:
+          devices:
+            - driver: nvidia
+              device_ids: ['0'] # Set to your GPU ID, or remove if only one GPU
+              capabilities: [gpu]
+    environment:
+      - TZ=<TZ_COUNTRY>                     # e.g. Europe/London
+      - PLEX_CLAIM=<PLEX_CLAIM_PASS>        # Get from https://plex.tv/claim
+      - NVIDIA_VISIBLE_DEVICES=all
+      - NVIDIA_DRIVER_CAPABILITIES=compute,video,utility
+      - CUDA_DRIVER_CAPABILITIES=compute,video,utility
+      - VERSION=plexpass
+      - PUID=1000
+      - PGID=1000
+    network_mode: host
+    volumes:
+      - <SHARE>/Plex/config:/config
+      - <SHARE>/Plex/transcode:/transcode
+      - <SHARE>/Shared/Movies:/Movies
+      - <SHARE>/Shared/Series:/Series
+
+  tautulli:
+    image: ghcr.io/tautulli/tautulli
+    container_name: tautulli
+    restart: unless-stopped
+    volumes:
+      - <SHARE>/Plex/Tautulli/tautuli-config:/config
+    environment:
+      - PUID=1000
+      - PGID=1000
+      - TZ=<TZ_COUNTRY>
+    ports:
+      - 8181:8181
+
+  bazarr:
+    image: lscr.io/linuxserver/bazarr:latest
+    container_name: bazarr
+    environment:
+      - PUID=1000
+      - PGID=1000
+      - TZ=<TZ_COUNTRY>
+    volumes:
+      - <SHARE>/Servarr/Bazarr/bazarr-config:/config
+      - <SHARE>/Shared/Movies:/Movies
+      - <SHARE>/Shared/Series:/Series
+    ports:
+      - 6767:6767
+    restart: unless-stopped
+
+  radarr:
+    container_name: radarr
+    image: lscr.io/linuxserver/radarr:latest
+    environment:
+      - PUID=1000
+      - PGID=1000
+      - TZ=<TZ_COUNTRY>
+    ports:
+      - 7878:7878
+    volumes:
+      - <SHARE>/Servarr/Radarr/radarr-config:/config
+      - <SHARE>/Shared/Movies:/Movies
+      - <SHARE>/Shared/Torrents:/Torrents
+    restart: unless-stopped
+
+  sonarr:
+    image: lscr.io/linuxserver/sonarr:latest
+    container_name: sonarr
+    environment:
+      - PUID=1000
+      - PGID=1000
+      - TZ=<TZ_COUNTRY>
+    volumes:
+      - <SHARE>/Servarr/Sonarr/sonarr-config:/config
+      - <SHARE>/Shared/Series:/Series
+      - <SHARE>/Shared/Torrents:/Torrents
+    ports:
+      - 8989:8989
+    restart: unless-stopped
+
+  overseerr:
+    image: sctx/overseerr:latest
+    container_name: overseerr
+    environment:
+      - LOG_LEVEL=debug
+      - TZ=<TZ_COUNTRY>
+      - PORT=5055 #optional
+    ports:
+      - 5055:5055
+    volumes:
+      - <SHARE>/Servarr/overseerr/overseerr-config:/app/config
+    restart: unless-stopped
+
+  prowlarr:
+    container_name: prowlarr
+    image: lscr.io/linuxserver/prowlarr:latest
+    environment:
+      - PUID=1000
+      - PGID=1000
+      - TZ=<TZ_COUNTRY>
+    volumes:
+      - <SHARE>/Servarr/Prowlarr/prowlarr-config:/config
+    ports:
+      - 9696:9696
+    restart: unless-stopped
+
+  readarr:
+    image: lscr.io/linuxserver/readarr:develop
+    container_name: readarr
+    environment:
+      - PUID=1000
+      - PGID=1000
+      - TZ=<TZ_COUNTRY>
+    volumes:
+      - <SHARE>/Servarr/Readarr/readarr-config:/config
+      - <SHARE>/Shared/Torrents/Downloads:/downloads
+    ports:
+      - 8787:8787
+    restart: unless-stopped
+
+  transmission-openvpn:
+    container_name: transmission-vpn
+    cap_add:
+      - NET_ADMIN
+    volumes:
+      - <SHARE>/Servarr/Transmission/transmission-opvn-config:/config
+      - <SHARE>/Shared/:/Media
+      - <SHARE>/Servarr/Transmission/transmission-watch:/watch
+    environment:
+      - OPENVPN_PROVIDER=<VPN_PROVIDER>            # e.g. nordvpn
+      - NORDVPN_COUNTRY=<COUNTRY_CODE>             # e.g. US
+      - OPENVPN_CONFIG=<COUNTRY>                   # e.g. us
+      - OPENVPN_USERNAME=<OPENVPN_USERNAME>
+      - NORDVPN_CATEGORY=legacy_p2p
+      - OPENVPN_PASSWORD=<OPENVPN_PASSWORD>
+      - LOCAL_NETWORK=192.168.0.0/16
+      - USER=transmission
+      - PASS=transm1ss1on
+      - TZ=<TZ_COUNTRY>
+      - TRANSMISSION_DOWNLOAD_DIR=/Media/Torrents/Downloads
+      - TRANSMISSION_INCOMPLETE_DIR=/Media/Torrents/Incomplete
+      - TRANSMISSION_WATCH_DIR=/watch
+      - TRANSMISSION_RPC_PASSWORD=<RPC_PASSWORD>
+      - TRANSMISSION_RPC_USERNAME=<RPC_USER>
+      - PUID=1000
+      - PGID=1000
+    logging:
+      driver: json-file
+      options:
+        max-size: 10m
+    # ports:
+    #   - '9092:9091'
+    restart: unless-stopped
+    image: haugene/transmission-openvpn
+
+  flood:
+    container_name: flood-gui
+    restart: unless-stopped
+    image: jesec/flood
+    user: "1000:1000"
+    ports:
+      - "9092:3000"
+    environment:
+      - FLOOD_OPTION_rundir=/config
+      - FLOOD_OPTION_host=0.0.0.0
+      - FLOOD_OPTION_port=3000
+      - FLOOD_OPTION_secret=<SECRET>
+    volumes:
+      - <SHARE>/Shared/:/Media
+      - <SHARE>/Servarr/Transmission/transmission-opvn-config:/config
+    depends_on:
+      transmission-openvpn:
+        condition: service_healthy
+        restart: true
